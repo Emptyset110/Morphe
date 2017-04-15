@@ -22,8 +22,8 @@ class Morphe(Atomos):
     self.__sorted_upstream: initiate as a empty list
     
     """
-    def __init__(self, name, time_column="time", buffer_size=0, sync_queue=None):
-        super().__init__(name=name, time_column=time_column, buffer_size=buffer_size, sync_queue=sync_queue)
+    def __init__(self, name, time_column="time", buffer_size=0, sync_queue=None, loop=None):
+        super().__init__(name=name, time_column=time_column, buffer_size=buffer_size, sync_queue=sync_queue, loop=loop)
 
         # 由于父类Atomos设置了self.__next = self.get，这里要替换掉
         self.__next = self.next
@@ -75,8 +75,7 @@ class Morphe(Atomos):
             self.empty_queue[k] = q
         print("{} prepare data DONE: {}".format(self.name, self.empty_queue))
 
-    @asyncio.coroutine
-    def next(self):
+    async def next(self):
         """
         Overridden
         :return: 
@@ -88,17 +87,14 @@ class Morphe(Atomos):
         for k in keys:
             q = self.empty_queue[k]
             # print("q", q)
-            try:
-                data = q.get_nowait()
-                t = data[self.upstream[k].time_column]           # 取出这条数据的时间戳
-                pos = bisect.bisect_left(self.__sorted_time, t)  # 判断插入位置
-                self.__sorted_name.insert(pos, k)                                   #
-                self.__sorted_time.insert(pos, t)                                   # 时间插入self.__sorted_time
-                self.__sorted_data.insert(pos, data)                                # 数据插入self.__sorted_data
-                self.__sorted_upstream_buffer_queue.insert(pos, self.upstream_buffer_queue[k])   # 把接收队列插入排序
-                self.empty_queue.pop(k)
-            except QueueEmpty:
-                continue
+            data = await q.get()
+            t = data[self.upstream[k].time_column]           # 取出这条数据的时间戳
+            pos = bisect.bisect_left(self.__sorted_time, t)  # 判断插入位置
+            self.__sorted_name.insert(pos, k)                                   #
+            self.__sorted_time.insert(pos, t)                                   # 时间插入self.__sorted_time
+            self.__sorted_data.insert(pos, data)                                # 数据插入self.__sorted_data
+            self.__sorted_upstream_buffer_queue.insert(pos, self.upstream_buffer_queue[k])   # 把接收队列插入排序
+            self.empty_queue.pop(k)
         # print("结束遍历empty_queue")
 
         # 从self.__sorted_data取出第一个数据
@@ -110,41 +106,29 @@ class Morphe(Atomos):
             self.__sorted_time.pop(0)
             return self.__sorted_data.pop(0)
         else:
-            raise QueueEmpty
+            await asyncio.sleep(0.01)
 
-    @asyncio.coroutine
-    def async_next(self):
+    async def async_next(self):
         """
         Using asyncio.Queue, asynchronously yield data from self.__data_source, put it into Queue
         :return:
         """
         print("{} Morphe async next".format(self.name))
         while True:
-            try:
-                data = yield from self.__next()
-                for atomos in self.listener:
-                    # TODO: 这里有一个隐患，当个别 atomos 的maxsize特别小，此线程消费速度又不够快的时候，会阻塞其他订阅者
-                    yield from atomos.put(data)
-                    print("{} async_put: {}".format(self.name, data))
-                    # print(atomos)
-            except StopIteration:
-                print("{} Morphe StopIteration".format(self.name))
-            except QueueEmpty:
-                print("{} Morphe QueueEmpty".format(self.name))
-                a = yield from asyncio.sleep(0.5)
+            data = await self.__next()
+            for atomos in self.listener:
+                # TODO: 这里有一个隐患，当个别 atomos 的maxsize特别小，此线程消费速度又不够快的时候，会阻塞其他订阅者
+                await atomos.put(data)
+                print("{} async_put: {}".format(self.name, data))
+                # print(atomos)
 
-    @asyncio.coroutine
-    def async_to_sync(self):
+    async def async_to_sync(self):
         """
         As long as a sync_queue is set, replace "async_next" with "async_to_sync"
         :return:
         """
         print("{} async_to_sync".format(self.name))
         while True:
-            try:
-                data = yield from self.__next()
-                self.sync_queue.put(data)
-            except QueueEmpty:
-                print("{} async_to_sync QueueEmpty".format(self.name))
-                # TODO: 这里不知道为什么，一旦出现一次QueueEmpty以后，就再也不会往后执行了
-                a = yield from asyncio.sleep(0.5)
+            data = await self.__next()
+            # print("{} sync put {}".format(self.name, data))
+            self.sync_queue.put(data)

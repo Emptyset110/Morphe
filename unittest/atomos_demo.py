@@ -1,6 +1,7 @@
 # coding: utf-8
 import sys
-sys.path.append("..")
+import os
+sys.path.append(os.getcwd())
 from Morphe.Atomos import Atomos
 from Morphe.Morphe import Morphe
 import asyncio

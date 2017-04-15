@@ -1,6 +1,6 @@
 # coding: utf-8
 from threading import Thread
-from pandas import DataFrame
+# from pandas import DataFrame
 import asyncio
 import queue
 from collections import Iterator
@@ -55,7 +55,6 @@ class Atomos(asyncio.Queue):
             t = threading.Thread(target=functools.partial(loop_run_forever, loop), daemon=True)
             t.start()
 
-        loop.set_debug(enabled=True)
         super().__init__(maxsize=buffer_size, loop=loop)
         asyncio.set_event_loop(self._loop)
         self.time_column = time_column
@@ -122,13 +121,11 @@ class Atomos(asyncio.Queue):
     def unsubscribe(self):
         pass
 
-    @asyncio.coroutine
-    def async_get_wrapper(self):
+    async def async_get_wrapper(self):
         data = self.__data_source.get()
         return data
 
-    @asyncio.coroutine
-    def __next(self):
+    async def __next(self):
         try:
             data = self.__data_source.__next__()
             return data
@@ -136,8 +133,7 @@ class Atomos(asyncio.Queue):
             print("{} StopIteration".format(self.name))
             raise StopIteration
 
-    @asyncio.coroutine
-    def async_next(self):
+    async def async_next(self):
         """
         Using asyncio.Queue, asynchronously yield data from self.__data_source, put it into Queue
         :return:
@@ -145,20 +141,18 @@ class Atomos(asyncio.Queue):
         print("{} Morphe async next".format(self.name))
         while True:
             try:
-                data = yield from self.__next()
+                data = await self.__next()
                 for atomos in self.listener:
                     # TODO: 这里有一个隐患，当个别 atomos 的maxsize特别小，此线程消费速度又不够快的时候，会阻塞其他订阅者
-                    yield from atomos.put(data)
+                    await atomos.put(data)
                     print("{} async_put: {}".format(self.name, data))
                     # print(atomos)
             except StopIteration:
                 print("{} Morphe StopIteration".format(self.name))
             except QueueEmpty:
                 print("{} Morphe QueueEmpty".format(self.name))
-                a = yield from asyncio.sleep(0.5)
 
-    @asyncio.coroutine
-    def async_to_sync(self):
+    async def async_to_sync(self):
         """
         As long as a sync_queue is set, replace "async_next" with "async_to_sync"
         :return:
@@ -166,12 +160,12 @@ class Atomos(asyncio.Queue):
         print("{} async_to_sync".format(self.name))
         while True:
             try:
-                data = yield from self.__next()
+                data = await self.__next()
                 self.sync_queue.put(data)
             except QueueEmpty:
                 print("{} async_to_sync QueueEmpty".format(self.name))
                 # TODO: 这里不知道为什么，一旦出现一次QueueEmpty以后，就再也不会往后执行了
-                a = yield from asyncio.sleep(0.5)
+                # a = yield from asyncio.sleep(0.5)
 
 
 
